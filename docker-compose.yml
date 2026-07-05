@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  farm-1:
+    build: .
+    container_name: roblox-farm-1
+    restart: unless-stopped
+    privileged: true
+    shm_size: '2gb'
+    mem_limit: 14g
+    oom_score_adj: -800
+    environment:
+      - INSTANCE_ID=1
+      - MAX_TABS=80
+      - FPS_THROTTLE=7
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+
+  dashboard:
+    build: ./dashboard
+    container_name: roblox-dashboard
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - farm-1
