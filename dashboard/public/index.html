@@ -25,6 +25,8 @@
     ws.onmessage = (e) => {
       const data = JSON.parse(e.data);
       let html = '';
+      const farmIdx = Object.fromEntries(Object.keys(data.farms).map((url, i) => [url, i]));
+
       Object.entries(data.farms).forEach(([url, f]) => {
         if (f.error) {
           html += `<div class="farm">
@@ -41,13 +43,14 @@
             <td>${t.uptimeSec}s</td>
             <td>${t.title ? escapeHtml(t.title) : '-'}</td>
             <td class="url" title="${t.url ? escapeHtml(t.url) : ''}">${t.url ? escapeHtml(t.url) : (t.error || '-')}</td>
+            <td>${t.status === 'ready' ? `<a href="/control.html?farm=${farmIdx[url]}&tab=${encodeURIComponent(t.id)}" target="_blank">Steuern</a>` : '-'}</td>
           </tr>
         `).join('');
 
         html += `<div class="farm">
           <div class="farm-header"><strong>${url}</strong> &middot; Tabs: ${f.tabs || 0}/${f.maxTabs || 0} &middot; RAM: ${f.ramMB} MB</div>
           <table>
-            <thead><tr><th>Tab</th><th>Status</th><th>Uptime</th><th>Titel</th><th>URL</th></tr></thead>
+            <thead><tr><th>Tab</th><th>Status</th><th>Uptime</th><th>Titel</th><th>URL</th><th></th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>`;

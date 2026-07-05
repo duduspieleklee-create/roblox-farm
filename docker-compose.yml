@@ -16,6 +16,7 @@ services:
       - CDP_PORT=9222
     ports:
       - "9222:9222"
+      - "3000:3000"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs

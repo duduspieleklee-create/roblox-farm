@@ -1,5 +1,7 @@
 const { chromium } = require('playwright');
 const express = require('express');
+const http = require('http');
+const WebSocket = require('ws');
 const fs = require('fs');
 const path = require('path');
 
@@ -10,6 +12,7 @@ const TAB_COUNT = parseInt(process.env.TAB_COUNT) || 10;
 const GAME_URL = process.env.GAME_URL || 'https://www.roblox.com/home';
 const TAB_STAGGER_MS = parseInt(process.env.TAB_STAGGER_MS) || 1500;
 const CDP_PORT = parseInt(process.env.CDP_PORT) || 9222;
+const CHROME_DEBUG_PORT = CDP_PORT + 1; // internal loopback-only port; socat proxies CDP_PORT to this
 
 const DATA_DIR = './data';
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
@@ -170,6 +173,82 @@ app.get('/tabs', (req, res) => {
   res.json({ instanceId: INSTANCE_ID, cdpPort: CDP_PORT, tabs });
 });
 
+function sendJSON(ws, obj) {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+
+async function handleControlConnection(ws, tabId) {
+  const record = instances.get(tabId);
+  if (!record || record.status !== 'ready' || !record.page || record.page.isClosed()) {
+    sendJSON(ws, { type: 'error', message: `tab ${tabId} nicht bereit` });
+    ws.close();
+    return;
+  }
+
+  const page = record.page;
+  const session = await page.context().newCDPSession(page);
+  const viewport = page.viewportSize() || { width: 1280, height: 720 };
+
+  const onFrame = async (params) => {
+    sendJSON(ws, { type: 'frame', data: params.data });
+    try {
+      await session.send('Page.screencastFrameAck', { sessionId: params.sessionId });
+    } catch (err) {}
+  };
+  session.on('Page.screencastFrame', onFrame);
+
+  await session.send('Page.startScreencast', {
+    format: 'jpeg',
+    quality: 60,
+    maxWidth: viewport.width,
+    maxHeight: viewport.height,
+    everyNthFrame: 1
+  });
+
+  sendJSON(ws, { type: 'init', width: viewport.width, height: viewport.height, tabId });
+
+  ws.on('message', async (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch (err) { return; }
+
+    try {
+      if (msg.type === 'mouse') {
+        await session.send('Input.dispatchMouseEvent', {
+          type: msg.eventType,
+          x: msg.x,
+          y: msg.y,
+          button: msg.button || 'none',
+          buttons: msg.buttons ?? 0,
+          clickCount: msg.clickCount || 1,
+          deltaX: msg.deltaX || 0,
+          deltaY: msg.deltaY || 0
+        });
+      } else if (msg.type === 'key') {
+        await session.send('Input.dispatchKeyEvent', {
+          type: msg.eventType,
+          key: msg.key,
+          code: msg.code,
+          text: msg.text,
+          unmodifiedText: msg.text,
+          windowsVirtualKeyCode: msg.keyCode,
+          nativeVirtualKeyCode: msg.keyCode
+        });
+      }
+    } catch (err) {
+      sendJSON(ws, { type: 'error', message: err.message });
+    }
+  });
+
+  const cleanup = async () => {
+    session.off('Page.screencastFrame', onFrame);
+    await session.send('Page.stopScreencast').catch(() => {});
+    await session.detach().catch(() => {});
+  };
+
+  ws.on('close', cleanup);
+  ws.on('error', cleanup);
+}
+
 async function shutdown() {
   console.log(`Farm ${INSTANCE_ID} wird beendet...`);
   if (browser) await browser.close().catch(() => {});
@@ -185,8 +264,7 @@ async function main() {
       '--no-sandbox',
       '--disable-dev-shm-usage',
       '--disable-webgl',
-      `--remote-debugging-port=${CDP_PORT}`,
-      '--remote-debugging-address=0.0.0.0'
+      `--remote-debugging-port=${CHROME_DEBUG_PORT}`
     ]
   });
 
@@ -195,7 +273,19 @@ async function main() {
   const accounts = loadAccounts();
   await openTabs(accounts);
 
-  app.listen(3000, () => console.log(`Status Server auf Port 3000`));
+  const server = http.createServer(app);
+  const wss = new WebSocket.Server({ server, path: '/control' });
+
+  wss.on('connection', (ws, req) => {
+    const url = new URL(req.url, 'http://localhost');
+    const tabId = url.searchParams.get('tab');
+    handleControlConnection(ws, tabId).catch((err) => {
+      sendJSON(ws, { type: 'error', message: err.message });
+      ws.close();
+    });
+  });
+
+  server.listen(3000, () => console.log(`Status Server auf Port 3000`));
 }
 
 process.on('SIGINT', shutdown);

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Tab-Steuerung</title>
+  <style>
+    body { font-family: Arial; background: #111; color: #0f0; padding: 20px; }
+    #status { margin-bottom: 10px; }
+    #frame { border: 1px solid #0f0; cursor: crosshair; max-width: 100%; outline: none; }
+  </style>
+</head>
+<body>
+  <div id="status">Verbinde...</div>
+  <img id="frame" tabindex="0" />
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const farm = params.get('farm') || '0';
+    const tab = params.get('tab') || '';
+    const statusEl = document.getElementById('status');
+    const img = document.getElementById('frame');
+
+    let viewport = { width: 1280, height: 720 };
+
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/control?farm=${farm}&tab=${encodeURIComponent(tab)}`);
+
+    ws.onopen = () => { statusEl.textContent = `Verbunden mit ${tab}`; };
+    ws.onclose = () => { statusEl.textContent = 'Verbindung getrennt'; };
+    ws.onerror = () => { statusEl.textContent = 'Fehler bei der Verbindung'; };
+
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'init') {
+        viewport = { width: msg.width, height: msg.height };
+        img.width = msg.width;
+      } else if (msg.type === 'frame') {
+        img.src = 'data:image/jpeg;base64,' + msg.data;
+      } else if (msg.type === 'error') {
+        statusEl.textContent = 'Fehler: ' + msg.message;
+      }
+    };
+
+    function send(obj) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+    }
+
+    function toTabCoords(e) {
+      const rect = img.getBoundingClientRect();
+      return {
+        x: (e.clientX - rect.left) * (viewport.width / rect.width),
+        y: (e.clientY - rect.top) * (viewport.height / rect.height)
+      };
+    }
+
+    const buttonName = (e) => ['left', 'middle', 'right'][e.button] || 'left';
+
+    img.addEventListener('mousemove', (e) => {
+      const { x, y } = toTabCoords(e);
+      send({ type: 'mouse', eventType: 'mouseMoved', x, y, buttons: e.buttons });
+    });
+
+    img.addEventListener('mousedown', (e) => {
+      const { x, y } = toTabCoords(e);
+      send({ type: 'mouse', eventType: 'mousePressed', x, y, button: buttonName(e), buttons: e.buttons, clickCount: 1 });
+      img.focus();
+      e.preventDefault();
+    });
+
+    img.addEventListener('mouseup', (e) => {
+      const { x, y } = toTabCoords(e);
+      send({ type: 'mouse', eventType: 'mouseReleased', x, y, button: buttonName(e), buttons: e.buttons, clickCount: 1 });
+    });
+
+    img.addEventListener('wheel', (e) => {
+      const { x, y } = toTabCoords(e);
+      send({ type: 'mouse', eventType: 'mouseWheel', x, y, deltaX: e.deltaX, deltaY: e.deltaY });
+      e.preventDefault();
+    }, { passive: false });
+
+    img.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    img.addEventListener('keydown', (e) => {
+      send({
+        type: 'key',
+        eventType: 'keyDown',
+        key: e.key,
+        code: e.code,
+        text: e.key.length === 1 ? e.key : '',
+        keyCode: e.keyCode
+      });
+      e.preventDefault();
+    });
+
+    img.addEventListener('keyup', (e) => {
+      send({ type: 'key', eventType: 'keyUp', key: e.key, code: e.code, keyCode: e.keyCode });
+      e.preventDefault();
+    });
+  </script>
+</body>
+</html>
