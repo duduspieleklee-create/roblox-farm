@@ -13,6 +13,9 @@ services:
       - INSTANCE_ID=1
       - MAX_TABS=80
       - FPS_THROTTLE=7
+      - CDP_PORT=9222
+    ports:
+      - "9222:9222"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs

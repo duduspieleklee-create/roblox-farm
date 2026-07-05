@@ -9,6 +9,7 @@ const FPS_THROTTLE = parseInt(process.env.FPS_THROTTLE) || 7;
 const TAB_COUNT = parseInt(process.env.TAB_COUNT) || 10;
 const GAME_URL = process.env.GAME_URL || 'https://www.roblox.com/home';
 const TAB_STAGGER_MS = parseInt(process.env.TAB_STAGGER_MS) || 1500;
+const CDP_PORT = parseInt(process.env.CDP_PORT) || 9222;
 
 const DATA_DIR = './data';
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
@@ -157,10 +158,17 @@ async function main() {
   await ensureDirs();
   browser = await chromium.launch({
     headless: true,
-    args: ['--disable-gpu', '--no-sandbox', '--disable-dev-shm-usage', '--disable-webgl']
+    args: [
+      '--disable-gpu',
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-webgl',
+      `--remote-debugging-port=${CDP_PORT}`,
+      '--remote-debugging-address=0.0.0.0'
+    ]
   });
 
-  console.log(`Farm ${INSTANCE_ID} gestartet | Max Tabs: ${MAX_TABS}`);
+  console.log(`Farm ${INSTANCE_ID} gestartet | Max Tabs: ${MAX_TABS} | CDP Port: ${CDP_PORT}`);
 
   const accounts = loadAccounts();
   await openTabs(accounts);
