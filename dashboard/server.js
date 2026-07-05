@@ -35,6 +35,18 @@ app.use(express.static('public'));
 setInterval(updateFarms, 8000);
 updateFarms();
 
+app.post('/api/restart/:farmIdx/:tabId', async (req, res) => {
+  const farmUrl = farmUrls[parseInt(req.params.farmIdx)];
+  if (!farmUrl) return res.status(404).json({ error: 'unbekannte Farm' });
+
+  try {
+    const r = await axios.post(`${farmUrl}/tabs/${encodeURIComponent(req.params.tabId)}/restart`, null, { timeout: 4000 });
+    res.json(r.data);
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 wss.on('connection', (browserWs, req) => {
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname !== '/control') return;

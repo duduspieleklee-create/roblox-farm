@@ -41,16 +41,23 @@
             <td>${t.id}</td>
             <td class="status-${t.status}">${t.status}</td>
             <td>${t.uptimeSec}s</td>
+            <td>${t.cpuPercent != null ? t.cpuPercent + '%' : '-'}</td>
+            <td>${t.ramMB != null ? t.ramMB + ' MB' : '-'}</td>
+            <td>${t.domNodes != null ? t.domNodes : '-'}</td>
             <td>${t.title ? escapeHtml(t.title) : '-'}</td>
             <td class="url" title="${t.url ? escapeHtml(t.url) : ''}">${t.url ? escapeHtml(t.url) : (t.error || '-')}</td>
-            <td>${t.status === 'ready' ? `<a href="/control.html?farm=${farmIdx[url]}&tab=${encodeURIComponent(t.id)}" target="_blank">Steuern</a>` : '-'}</td>
+            <td>
+              ${t.status === 'ready' ? `<a href="/control.html?farm=${farmIdx[url]}&tab=${encodeURIComponent(t.id)}" target="_blank">Steuern</a>` : '-'}
+              &middot;
+              <a href="#" onclick="restartTab(event, ${farmIdx[url]}, '${t.id}')">Neustart</a>
+            </td>
           </tr>
         `).join('');
 
         html += `<div class="farm">
           <div class="farm-header"><strong>${url}</strong> &middot; Tabs: ${f.tabs || 0}/${f.maxTabs || 0} &middot; RAM: ${f.ramMB} MB</div>
           <table>
-            <thead><tr><th>Tab</th><th>Status</th><th>Uptime</th><th>Titel</th><th>URL</th><th></th></tr></thead>
+            <thead><tr><th>Tab</th><th>Status</th><th>Uptime</th><th>CPU</th><th>RAM</th><th>DOM</th><th>Titel</th><th>URL</th><th></th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>`;
@@ -62,6 +69,16 @@
       return s.replace(/[&<>"']/g, (c) => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
       }[c]));
+    }
+
+    async function restartTab(e, farmIdx, tabId) {
+      e.preventDefault();
+      if (!confirm(`Tab ${tabId} neu starten?`)) return;
+      try {
+        await fetch(`/api/restart/${farmIdx}/${encodeURIComponent(tabId)}`, { method: 'POST' });
+      } catch (err) {
+        alert('Neustart fehlgeschlagen: ' + err.message);
+      }
     }
   </script>
 </body>

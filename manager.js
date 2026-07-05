@@ -50,7 +50,18 @@ async function getTargetId(page) {
 }
 
 async function openTab(account) {
-  const record = { page: null, context: null, status: 'loading', openedAt: Date.now(), error: null, targetId: null };
+  const record = {
+    page: null,
+    context: null,
+    status: 'loading',
+    openedAt: Date.now(),
+    error: null,
+    targetId: null,
+    account,
+    perfSession: null,
+    lastTaskDuration: 0,
+    lastMetricsAt: Date.now()
+  };
   instances.set(account.id, record);
 
   const context = await browser.newContext();
@@ -73,6 +84,7 @@ async function openTab(account) {
   await applyOptimizations(page);
   page.on('close', () => {
     record.status = 'closed';
+    if (record.perfSession) record.perfSession.detach().catch(() => {});
     context.close().catch(() => {});
   });
 
@@ -81,6 +93,9 @@ async function openTab(account) {
     record.page = page;
     record.status = 'ready';
     record.targetId = await getTargetId(page);
+    record.perfSession = await context.newCDPSession(page);
+    await record.perfSession.send('Performance.enable');
+    record.lastMetricsAt = Date.now();
     console.log(`[${account.id}] geladen${account.cookie ? ' (eingeloggt)' : ' (Gast)'}`);
   } catch (err) {
     record.status = 'error';
@@ -90,6 +105,18 @@ async function openTab(account) {
   }
 }
 
+async function restartTab(id) {
+  const record = instances.get(id);
+  if (!record) throw new Error(`unbekannter Tab: ${id}`);
+
+  const account = record.account;
+  if (record.perfSession) await record.perfSession.detach().catch(() => {});
+  if (record.page && !record.page.isClosed()) await record.page.close().catch(() => {});
+  else if (record.context) await record.context.close().catch(() => {});
+
+  return openTab(account);
+}
+
 async function describeTab(id, record) {
   const base = {
     id,
@@ -97,7 +124,11 @@ async function describeTab(id, record) {
     uptimeSec: Math.round((Date.now() - record.openedAt) / 1000),
     error: record.error,
     url: null,
-    title: null
+    title: null,
+    ramMB: null,
+    cpuPercent: null,
+    domNodes: null,
+    jsListeners: null
   };
 
   if (record.status !== 'ready' || !record.page || record.page.isClosed()) {
@@ -112,6 +143,24 @@ async function describeTab(id, record) {
     ]);
   } catch (err) {
     base.title = null;
+  }
+
+  if (record.perfSession) {
+    try {
+      const { metrics } = await record.perfSession.send('Performance.getMetrics');
+      const m = Object.fromEntries(metrics.map((entry) => [entry.name, entry.value]));
+      const now = Date.now();
+      const elapsedSec = (now - record.lastMetricsAt) / 1000;
+      const taskDelta = m.TaskDuration - record.lastTaskDuration;
+      base.cpuPercent = elapsedSec > 0
+        ? Math.max(0, Math.min(100, Math.round((taskDelta / elapsedSec) * 100)))
+        : 0;
+      base.ramMB = Math.round((m.JSHeapUsedSize || 0) / 1024 / 1024 * 10) / 10;
+      base.domNodes = m.Nodes;
+      base.jsListeners = m.JSEventListeners;
+      record.lastTaskDuration = m.TaskDuration;
+      record.lastMetricsAt = now;
+    } catch (err) {}
   }
 
   return base;
@@ -171,6 +220,14 @@ app.get('/tabs', (req, res) => {
     url: record.page && !record.page.isClosed() ? record.page.url() : null
   }));
   res.json({ instanceId: INSTANCE_ID, cdpPort: CDP_PORT, tabs });
+});
+
+app.post('/tabs/:id/restart', async (req, res) => {
+  const id = req.params.id;
+  if (!instances.has(id)) return res.status(404).json({ error: `unbekannter Tab: ${id}` });
+
+  restartTab(id).catch((err) => console.error(`[${id}] Neustart-Fehler:`, err.message));
+  res.json({ ok: true, id });
 });
 
 function sendJSON(ws, obj) {
