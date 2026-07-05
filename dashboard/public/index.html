@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Roblox Farm Dashboard</title>
+  <style>
+    body { font-family: Arial; background: #111; color: #0f0; padding: 20px; }
+    .farm { border: 1px solid #0f0; padding: 15px; margin: 10px 0; }
+    .farm-header { margin-bottom: 10px; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th, td { border: 1px solid #093; padding: 4px 8px; text-align: left; }
+    th { color: #6f6; }
+    td.url { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .status-ready { color: #0f0; }
+    .status-loading { color: #ff0; }
+    .status-error { color: #f33; }
+    .status-closed { color: #888; }
+  </style>
+</head>
+<body>
+  <h1>Roblox Farm Dashboard</h1>
+  <div id="content">Lade Daten...</div>
+
+  <script>
+    const ws = new WebSocket('ws://' + location.host);
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      let html = '';
+      Object.entries(data.farms).forEach(([url, f]) => {
+        if (f.error) {
+          html += `<div class="farm">
+            <strong>${url}</strong><br>
+            <span class="status-error">nicht erreichbar</span>
+          </div>`;
+          return;
+        }
+
+        const rows = (f.tabList || []).map(t => `
+          <tr>
+            <td>${t.id}</td>
+            <td class="status-${t.status}">${t.status}</td>
+            <td>${t.uptimeSec}s</td>
+            <td>${t.title ? escapeHtml(t.title) : '-'}</td>
+            <td class="url" title="${t.url ? escapeHtml(t.url) : ''}">${t.url ? escapeHtml(t.url) : (t.error || '-')}</td>
+          </tr>
+        `).join('');
+
+        html += `<div class="farm">
+          <div class="farm-header"><strong>${url}</strong> &middot; Tabs: ${f.tabs || 0}/${f.maxTabs || 0} &middot; RAM: ${f.ramMB} MB</div>
+          <table>
+            <thead><tr><th>Tab</th><th>Status</th><th>Uptime</th><th>Titel</th><th>URL</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+      });
+      document.getElementById('content').innerHTML = html;
+    };
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+  </script>
+</body>
+</html>
