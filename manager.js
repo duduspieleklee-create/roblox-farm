@@ -35,8 +35,19 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function getTargetId(page) {
+  try {
+    const session = await page.context().newCDPSession(page);
+    const { targetInfo } = await session.send('Target.getTargetInfo');
+    await session.detach().catch(() => {});
+    return targetInfo.targetId;
+  } catch (err) {
+    return null;
+  }
+}
+
 async function openTab(account) {
-  const record = { page: null, context: null, status: 'loading', openedAt: Date.now(), error: null };
+  const record = { page: null, context: null, status: 'loading', openedAt: Date.now(), error: null, targetId: null };
   instances.set(account.id, record);
 
   const context = await browser.newContext();
@@ -66,6 +77,7 @@ async function openTab(account) {
     await page.goto(GAME_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
     record.page = page;
     record.status = 'ready';
+    record.targetId = await getTargetId(page);
     console.log(`[${account.id}] geladen${account.cookie ? ' (eingeloggt)' : ' (Gast)'}`);
   } catch (err) {
     record.status = 'error';
@@ -146,6 +158,16 @@ app.get('/status', async (req, res) => {
     ramMB: Math.round(mem.heapUsed / 1024 / 1024),
     tabList: tabs
   });
+});
+
+app.get('/tabs', (req, res) => {
+  const tabs = Array.from(instances.entries()).map(([id, record]) => ({
+    id,
+    targetId: record.targetId,
+    status: record.status,
+    url: record.page && !record.page.isClosed() ? record.page.url() : null
+  }));
+  res.json({ instanceId: INSTANCE_ID, cdpPort: CDP_PORT, tabs });
 });
 
 async function shutdown() {
