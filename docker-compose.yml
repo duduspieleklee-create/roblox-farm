@@ -11,9 +11,10 @@ services:
     oom_score_adj: -800
     environment:
       - INSTANCE_ID=1
-      - MAX_TABS=80
+      - MAX_TABS=5
       - FPS_THROTTLE=7
       - CDP_PORT=9222
+      - GAME_URL=https://www.roblox.com/share?code=26eb01590e5f464fab305a1389a74ad9&type=Server
     ports:
       - "9222:9222"
       - "3000:3000"
